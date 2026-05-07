@@ -1,0 +1,153 @@
+# Flux Worker Configuration
+
+workers:
+  # =====================
+  # STAGE 1: SOURCES
+  # =====================
+  
+  # Source Worker: Top 20 S&P 500 Stocks
+  source_stocks:
+    type: source
+    adapter: alphavantage
+    enabled: true
+    config:
+      api_key: ${ALPHAVANTAGE_KEY}
+      symbols: [AAPL, MSFT, GOOGL, AMZN, NVDA, TSLA, META, BERKB, JNJ, XOM, 
+                MA, PG, HD, V, COST, KO, PEP, LLY, MCD, CRM]
+      interval: 60s  # 1-minute delay to avoid rate limits
+      fallback_adapter: yfinance  # Fallback if API fails
+    outputs:
+      - stock_data
+
+  # Source Worker: News Feed
+  source_news:
+    type: source
+    adapter: newsapi
+    enabled: true
+    config:
+      api_key: ${NEWSAPI_KEY}
+      keywords: [stock, market, economy, earnings, FDA]
+      interval: 30s
+      languages: [en]
+      sort_by: publishedAt
+    outputs:
+      - news_data
+
+  # =====================
+  # STAGE 2: RAW STORAGE
+  # =====================
+  
+  save_raw_stocks:
+    type: transcriber
+    enabled: true
+    inputs:
+      - stock_data
+    config:
+      table: stocks_raw
+      batch_size: 100
+      retention_days: 90
+    outputs:
+      - stock_data_saved
+
+  save_raw_news:
+    type: transcriber
+    enabled: true
+    inputs:
+      - news_data
+    config:
+      table: news_raw
+      batch_size: 50
+      retention_days: 30
+    outputs:
+      - news_data_saved
+
+  # =====================
+  # STAGE 3: AGGREGATION
+  # =====================
+  
+  agg_stocks_news:
+    type: aggregation
+    enabled: true
+    inputs:
+      - stock_data_saved
+      - news_data_saved
+    config:
+      output_stream: aggregated_data
+      time_window_ms: 60000  # 1 minute window for time-matching
+      downsample_factor: 2   # Skip every 2nd sample to reduce volume
+      join_strategy: "time_proximity"  # Nearest timestamp within window
+      max_buffer_size: 1000
+    outputs:
+      - aggregated_data
+
+  # =====================
+  # STAGE 4: AGGREGATED STORAGE
+  # =====================
+  
+  save_aggregated:
+    type: transcriber
+    enabled: true
+    inputs:
+      - aggregated_data
+    config:
+      table: stocks_news_aggregated
+      batch_size: 50
+      retention_days: 60
+    outputs:
+      - aggregated_data_saved
+
+  # =====================
+  # STAGE 5: ALGORITHMS
+  # =====================
+  
+  algorithm_sentiment_technical:
+    type: algorithm
+    enabled: true
+    inputs:
+      - aggregated_data_saved
+    config:
+      algorithm_module: Flux.Algorithms.SentimentTechnical
+      rust_nif: analyze_price_sentiment
+      cache_window: 100  # Keep last 100 aggregated points
+      batch_size: 10
+    outputs:
+      - analysis_results
+
+  # =====================
+  # STAGE 6: RESULTS STORAGE
+  # =====================
+  
+  save_results:
+    type: transcriber
+    enabled: true
+    inputs:
+      - analysis_results
+    config:
+      table: analysis_results
+      batch_size: 100
+      retention_days: 90
+    outputs: []  # End of pipeline
+
+# =====================
+# GLOBAL CONFIG
+# =====================
+
+database:
+  type: timescaledb
+  url: ${DATABASE_URL}
+  pool_size: 10
+  timeout_ms: 5000
+
+pubsub:
+  adapter: redis
+  url: ${REDIS_URL}
+  timeout_ms: 1000
+
+logging:
+  level: ${LOG_LEVEL}
+  format: json
+
+monitoring:
+  enabled: true
+  metrics_port: 9090
+  health_check_interval: 30s

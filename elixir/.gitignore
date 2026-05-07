@@ -1,0 +1,13 @@
+# Elixir
+/_build/
+/deps/
+/doc/
+.DS_Store
+*.beam
+.env
+.env.local
+*.iml
+.idea/
+erl_crash.dump
+.elixir_ls/
+.exunit_cache/

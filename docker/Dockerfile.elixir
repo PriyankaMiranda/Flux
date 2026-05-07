@@ -1,0 +1,16 @@
+FROM elixir:1.14-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache gcc musl-dev make
+
+COPY mix.exs mix.lock ./
+RUN mix local.hex --force && mix local.rebar --force
+RUN mix deps.get
+
+COPY . .
+RUN mix compile
+
+EXPOSE 4000
+
+CMD ["mix", "run", "--no-halt"]

@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # Elixir Orchestration Service
+  flux_orchestrator:
+    build:
+      context: ./elixir
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      - MIX_ENV=dev
+    volumes:
+      - ./elixir:/app
+    depends_on:
+      - redis
+    networks:
+      - flux_network
+
+  # Redis for caching and pub/sub
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - flux_network
+
+  # Python Strategy Engine
+  flux_strategies:
+    build:
+      context: ./python
+      dockerfile: Dockerfile
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - ORCHESTRATOR_URL=http://flux_orchestrator:4000
+    volumes:
+      - ./python:/app
+    depends_on:
+      - redis
+      - flux_orchestrator
+    networks:
+      - flux_network
+
+networks:
+  flux_network:
+    driver: bridge
